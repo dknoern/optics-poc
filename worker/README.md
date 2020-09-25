@@ -22,6 +22,9 @@ publish with:
 
 ```
 dotnet publish -c Release
+docker build . -t job-wq-1
+docker tag job-wq-1 dknoern/job-wq-1
+docker push dknoern/job-wq-1
 ```
 
 

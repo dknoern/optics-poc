@@ -2,3 +2,7 @@
 
 kubeconfig_*
 *.tfstate
+
+*/*/bin
+*/*/obj
+
