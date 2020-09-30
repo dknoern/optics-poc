@@ -57,7 +57,7 @@ resource "aws_security_group" "sg_22" {
 }
 
 resource "aws_key_pair" "ec2key" {
-  key_name   = "publicKey"
+  key_name   = "sentryPublicKey"
   public_key = file(var.public_key_path)
 }
 
