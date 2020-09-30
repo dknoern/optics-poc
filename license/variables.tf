@@ -26,8 +26,10 @@ variable "public_key_path" {
 }
 variable "instance_ami" {
   description = "AMI for aws EC2 instance"
-#  default     = "ami-830c94e3"
-  default     = "ami-0afb7a78e89642197"
+  #blank windows server
+  #default     = "ami-0afb7a78e89642197"
+  #sentry license server
+  default     = ami-0afb7a78e89642197
 }
 variable "instance_type" {
   description = "type for aws EC2 instance"
