@@ -12,7 +12,7 @@ dotnet restore
 
 Add code to Program.cs and other files
 
-run with:
+to test locally, run with:
 
 ```
 dotnet run

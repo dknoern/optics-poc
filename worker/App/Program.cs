@@ -8,20 +8,24 @@ namespace Worker
 {
     class Program
     {
-        
+
+
         static void Main(string[] args)
         {
 
-            var factory = new ConnectionFactory() { HostName = "rabbitmq-service" };
-            using (var connection = factory.CreateConnection())
-            using (var channel = connection.CreateModel())
-            {
+            string inputQueueName = "task";
 
-                channel.QueueDeclare(queue: "task",
+            var factory = new ConnectionFactory() { HostName = "rabbitmq-service" };
+            var connection = factory.CreateConnection();
+            var channel = connection.CreateModel();
+            var outChannel = connection.CreateModel();
+
+                channel.QueueDeclare(queue: inputQueueName,
                                      durable: false,
                                      exclusive: false,
                                      autoDelete: false,
                                      arguments: null);
+
 
 
                 var consumer = new EventingBasicConsumer(channel);
@@ -36,17 +40,32 @@ namespace Worker
                     string jobNumber = words[0];
                     string taskNumber = words[1];
                     int inVal = Int16.Parse(words[2]);
+
+                    // fake extra time for calc
+                    Thread.Sleep(3000);
+
                     int outVal = inVal * inVal;
                     String outString = outVal.ToString();
 
-                    var path = "/var/lib/jobs/" + jobNumber + "/out/" + taskNumber + ".txt";
-                    
-                    Console.WriteLine("outpath = " + path);
-                    Console.WriteLine("outVal=" + outString);
+                    string outputQueueName = "out-"+jobNumber;
 
-                    Thread.Sleep(5000);
-                    System.IO.File.WriteAllText(path, outString);
 
+                    Console.WriteLine("publishing response " + jobNumber + ", " + outputQueueName + ", " + outString);
+
+                    String outMessage = jobNumber + "|" + taskNumber + "|" + outString;
+
+                    var outBody = Encoding.UTF8.GetBytes(outMessage);
+
+                    outChannel.QueueDeclare(queue: outputQueueName,
+                                     durable: false,
+                                     exclusive: false,
+                                     autoDelete: false,
+                                     arguments: null);
+
+                    outChannel.BasicPublish(exchange: "",
+                                     routingKey: outputQueueName,
+                                     basicProperties: null,
+                                     body: outBody);
                 };
                 channel.BasicConsume(queue: "task",
                                      autoAck: true,
@@ -63,7 +82,8 @@ namespace Worker
                     Thread.Sleep(20000);
                 }
 
-            }
+            
         }
+
     }
 }

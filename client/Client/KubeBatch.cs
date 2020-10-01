@@ -1,12 +1,10 @@
 using System;
 using RabbitMQ.Client;
+using RabbitMQ.Client.Events;
 using System.Text;
 using System.Threading;
 using k8s;
 using k8s.Models;
-using System.Threading.Tasks;
-using System.Net;
-using System.Net.Sockets;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.IO;
@@ -21,10 +19,15 @@ namespace KubeBatch
 
         string outputDir = null;
 
+        string inputQueueName = "task";
+        string outputQueueName = null;
+
 
         public void Init(int jobNumber, List<string> tasks)
         {
             outputDir = "jobs/"+jobNumber+"/out";
+
+            outputQueueName = "out-"+jobNumber;
 
             Console.WriteLine("BatchClient: initializing");
 
@@ -53,24 +56,61 @@ namespace KubeBatch
 
             PublishTasks(channel, jobNumber, tasks);
 
-            Boolean done = false;
+            // wait for results
 
-            while(!done)
-            {
-                Thread.Sleep(10000);
-                CopyJobOutputDir(jobNumber.ToString());
-                
-                String dirName = "jobs/"+jobNumber+"/out";
-                System.IO.DirectoryInfo dir = new System.IO.DirectoryInfo(dirName);
-                int count = dir.GetFiles().Length;
+                int finishedTaskCount = 0;
 
-                Console.WriteLine("output file count: "+ count);
+                int totalResult = 0;
+            
+                channel.QueueDeclare(queue: outputQueueName,
+                                     durable: false,
+                                     exclusive: false,
+                                     autoDelete: false,
+                                     arguments: null);
 
-                if(count == tasks.Count){
-                    Console.WriteLine("all tasks complete");
-                    done = true;
+
+                var consumer = new EventingBasicConsumer(channel);
+                consumer.Received += (model, ea) =>
+                {
+                    var body = ea.Body.ToArray();
+                    var message = Encoding.UTF8.GetString(body).ToString();
+                    Console.WriteLine(" [x] Received {0}", message);
+
+                    finishedTaskCount++;
+
+                    Console.WriteLine(finishedTaskCount + " out of " + tasks.Count + " responses received");
+
+                    string[] words = message.Split('|');
+
+                    string jobNumber = words[0];
+                    string taskNumber = words[1];
+                    int outVal = Int16.Parse(words[2]);
+
+                    // TODO: plug in function here
+                    totalResult += outVal;
+                    // TODO: end
+
+                    Console.WriteLine("outVal=" + outVal);
+
+                };
+                channel.BasicConsume(queue: outputQueueName,
+                                     autoAck: true,
+                                     consumer: consumer);
+
+
+
+                int i = 0;
+                while (finishedTaskCount < tasks.Count)
+                {
+                    Console.WriteLine("listening for results..." + i);
+                    i++;
+                    Thread.Sleep(20000);
                 }
-            }
+
+                Console.WriteLine("all responses complete");
+                Console.WriteLine("total result = "+ totalResult);
+            
+
         }
         
         void BuildJobDir(string jobNumber)
@@ -91,7 +131,7 @@ namespace KubeBatch
             return outputDir;
         }
 
-       static void CopyJobDir(string jobNumber)
+       void CopyJobDir(string jobNumber)
         {
             
             V1Pod worker = FindFirstPod("worker");
@@ -102,54 +142,41 @@ namespace KubeBatch
             Process.Start("kubectl", command);
         }
 
-       static void CopyJobOutputDir(string jobNumber)
+         void PublishTasks(IModel channel, int jobNumber, List<String> taskInputs)
         {
-            
-            V1Pod worker = FindFirstPod("worker");
-            var podName = worker.Metadata.Name;
 
-            String command = "cp " + podName + ":/var/lib/jobs/"+jobNumber+"/out jobs/"+jobNumber + "/out";
+            channel.QueueDeclare(queue: inputQueueName,
+                                 durable: false,
+                                 exclusive: false,
+                                 autoDelete: false,
+                                 arguments: null);
 
-            Process process = new Process();
-            process.StartInfo.FileName = "kubectl";
-            process.StartInfo.Arguments = command;
-            process.StartInfo.RedirectStandardOutput = true;
-            process.StartInfo.RedirectStandardError = true;
-            process.Start();
-            process.WaitForExit();
+            string outputQueueName = "out-" + jobNumber.ToString();
 
-            Process.Start("kubectl", command);
-        }
+            channel.QueueDeclare(queue: outputQueueName,
+                                 durable: false,
+                                 exclusive: false,
+                                 autoDelete: false,
+                                 arguments: null);
+            int i = 0;
 
-        static void PublishTasks( IModel channel, int jobNumber, List<String> taskInputs)
-        {
-            string queueName = "task";
+            foreach (string taskInput in taskInputs)
             {
-                channel.QueueDeclare(queue: queueName,
-                                     durable: false,
-                                     exclusive: false,
-                                     autoDelete: false,
-                                     arguments: null);
-                int i = 0;
+                i++;
+                Console.WriteLine("publishing job " + jobNumber + ", " + inputQueueName + ", " + taskInput);
 
-                foreach (string taskInput in taskInputs)
-                {
-                    i++;
-                    Console.WriteLine("publishing job " + jobNumber + ", " + queueName + ", " + taskInput);
-                    
-                    String message = jobNumber.ToString() + "|" + i.ToString() + "|" + taskInput;
+                String message = jobNumber.ToString() + "|" + i.ToString() + "|" + taskInput;
 
-                    var body = Encoding.UTF8.GetBytes(message);
-                    
-                    channel.BasicPublish(exchange: "",
-                                     routingKey: queueName,
-                                     basicProperties: null,
-                                     body: body);
-                }   
+                var body = Encoding.UTF8.GetBytes(message);
+
+                channel.BasicPublish(exchange: "",
+                                 routingKey: inputQueueName,
+                                 basicProperties: null,
+                                 body: body);
             }
         }
 
-        private static void PodList()
+        private void PodList()
         {
             var config = KubernetesClientConfiguration.BuildDefaultConfig();
             IKubernetes client = new Kubernetes(config);
@@ -168,7 +195,7 @@ namespace KubeBatch
         }
 
 
-        private static V1Pod FindFirstPod(string prefix)
+        private V1Pod FindFirstPod(string prefix)
         {
             var config = KubernetesClientConfiguration.BuildDefaultConfig();
             IKubernetes client = new Kubernetes(config);
@@ -189,7 +216,7 @@ namespace KubeBatch
         }
 
 
-        public static void PortForward(string PodName)
+        public void PortForward(string PodName)
         {
             Process.Start("kubectl", "port-forward " + PodName + " 5672:5672");
         }
