@@ -1,17 +1,15 @@
-using HPCShared;
 using ZOSKubLib;
 using System;
 using System.Collections.Generic;
 using System.IO;
 
-namespace ZOSKubApp
+namespace TestApp
 {
     public class Program 
     {
         static void Main(string[] args)
         {
             Console.WriteLine("worker process started....");
-
 
             ITaskWorker taskWorker = new ZOSTaskWorker();
 

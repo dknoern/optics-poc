@@ -1,0 +1,174 @@
+#OpticStudio Premium license info
+•	License Number:   L112168 
+•	Product:  Premium Subscription Network 1 YR 
+•	Number of Seats:  50 
+•	Support Expiration: Friday, March 1, 2021 
+•	License activation code:  [8ad1733b-bec7-4b1c-a8ad-b17b6c55117d] 
+
+###########################################################################################
+#First, set up Zemax License manager. OpticStudio needs to talk to it to get a valid license
+#this can be on a VM or standalone Windows machine
+#You can download License Manager on the OpticStudio downloads page:
+https://my.zemax.com/en-US/opticstudio-downloads/
+#under resources you will find LicenseManager as a standalone exe
+
+#add/accept your license key
+-->Open License Manager app (in Windows)
+-->Click on Receive license
+-->enter license number and transfer code >>make sure you enter/paste the brackets<<
+-->Click on activate
+#Configure License Manager to accept remote license requests
+browse to localhost:1947 (should open the Sentinel Admin Control Center page)
+click on configuration, then on Access from remote clients
+make sure that "allow access from remote clients" is checked
+close browser window. License Manager is now ready
+###########################################################################################
+How we built a Docker image housing OpticStudio:
+
+mkdir docker
+(cd docker) mkdir opticstudio
+(cd opticstudio) mkdir resources
+
+#create the follwing .inf file
+#ZOS refers to Zemax OpticStudio version. Obviously filenames should change if you work with a different version
+(cd resources) create an .inf file, named ZOS20.1_2020-01-21.exe.inf
+#content of .inf file
+[Setup]
+Lang=default
+Dir=C:\Program Files\OpticStudio
+Group=OpticStudio
+NoIcons=0
+Tasks=desktopicon,quicklaunchicon
+
+#go back to opticstudio directory
+create the dockerfile
+
+#content of dockerfile [DOCKERFILE START]
+FROM mcr.microsoft.com/windows:1809 AS opticstudio_base
+
+RUN mkdir resources
+COPY ./resources ./resources
+
+# download OpticStudio installer
+ADD http://downloads.zemax.com/Downloads/ZOS20.1_2020-01-21.exe ./resources
+ADD http://go.microsoft.com/fwlink/?linkid=863265 ./resources/NDP472-KB4054530-x86-x64-AllOS-ENU.exe
+
+# install .Net Framework
+RUN powershell ".\resources\NDP472-KB4054530-x86-x64-AllOS-ENU.exe /q /norestart"
+[/DOCKERFILE END]
+
+#build docker image
+docker build -t opticstudio:base_ZOS20.1_2020-01-21 .
+
+#Start base container and connect to it
+docker run -it --name opticstudio_base opticstudio:base_ZOS20.1_2020-01-21 powershell
+#inside the container
+cd C:\resources
+.\ZOS20.1_2020-01-21.exe /SP- /VERYSILENT /SUPPRESSMSGBOXES /LOADINF=ZOS20.1_2020-01-21.exe.inf /LOG=ZOS20.1_2020-01-21.exe.log
+#will take a few minutes to install
+#verify components are installed
+Get-WinEvent -ProviderName 'MsiInstaller' | Where-Object { $_ .TimeCreated -ge (Get-Date).tostring( "yyyy-MM-ddT00:00:00" )} | Where-Object { $_ .Message -Match 'Product: *' }
+#you want to see these 11 items
+TimeCreated                     Id LevelDisplayName Message
+-----------                     -- ---------------- -------
+6/4/2020 4:16:12 PM          11707 Information      Product: Sentinel System Driver Installer 7.6.0 -- Installation operation completed successfully.
+6/4/2020 4:14:11 PM          11707 Information      Product: Microsoft SQL Server Compact 3.5 SP2 x64 ENU -- Installation operation completed successfully.
+6/4/2020 4:14:09 PM          11707 Information      Product: Microsoft SQL Server Compact 3.5 SP2 ENU -- Installation operation completed successfully.
+6/4/2020 4:14:00 PM          11707 Information      Product: Microsoft Visual C++ 2017 x64 Additional Runtime - 14.11.25325 -- Installation completed successfully.
+6/4/2020 4:13:59 PM          11707 Information      Product: Microsoft Visual C++ 2017 x64 Minimum Runtime - 14.11.25325 -- Installation completed successfully.
+6/4/2020 4:13:55 PM          11707 Information      Product: Microsoft Visual C++ 2012 x64 Additional Runtime - 11.0.61030 -- Installation completed successfully.
+6/4/2020 4:13:54 PM          11707 Information      Product: Microsoft Visual C++ 2012 x64 Minimum Runtime - 11.0.61030 -- Installation completed successfully.
+6/4/2020 4:13:52 PM          11707 Information      Product: Microsoft Visual C++ 2012 x86 Additional Runtime - 11.0.61030 -- Installation completed successfully.
+6/4/2020 4:13:51 PM          11707 Information      Product: Microsoft Visual C++ 2012 x86 Minimum Runtime - 11.0.61030 -- Installation completed successfully.
+6/4/2020 4:13:46 PM          11707 Information      Product: Microsoft Visual C++ 2010  x64 Redistributable - 10.0.30319 -- Installation completed successfully.
+6/4/2020 4:13:40 PM          11707 Information      Product: Microsoft Visual C++ 2010  x86 Redistributable - 10.0.30319 -- Installation completed successfully.
+
+#There are some prerequisites OpticStudio will install, if not already present
+#Need to make sure the prereqs complete. It should only take a few minutes
+#You can check their completion by parsing the install log
+Select-String .\ZOS20.1_2020-01-21.exe.log -Pattern 'OpticStudio_Prerequisites' -Context 3
+#if you see prereqs with a successful exit code, you should be all good!
+ZOS20.1_2020-01-21.exe.log:350:2020-06-04 16:09:12.281   Installing the file.
+  ZOS20.1_2020-01-21.exe.log:351:2020-06-04 16:09:15.688   Successfully installed the file.
+  ZOS20.1_2020-01-21.exe.log:352:2020-06-04 16:09:15.719   -- File entry --
+> ZOS20.1_2020-01-21.exe.log:353:2020-06-04 16:09:15.719   Dest filename: C:\Program Files\Zemax OpticStudio\OpticStudio_Prerequisites.exe
+  ZOS20.1_2020-01-21.exe.log:354:2020-06-04 16:09:15.719   Time stamp of our file: 2020-01-21 00:00:00.000
+  ZOS20.1_2020-01-21.exe.log:355:2020-06-04 16:09:15.719   Installing the file.
+  ZOS20.1_2020-01-21.exe.log:356:2020-06-04 16:09:22.003   Successfully installed the file.
+  ZOS20.1_2020-01-21.exe.log:10539:2020-06-04 16:13:32.228   -- Run entry --
+  ZOS20.1_2020-01-21.exe.log:10540:2020-06-04 16:13:32.228   Run as: Current user
+  ZOS20.1_2020-01-21.exe.log:10541:2020-06-04 16:13:32.228   Type: Exec
+> ZOS20.1_2020-01-21.exe.log:10542:2020-06-04 16:13:32.228   Filename: C:\Program Files\Zemax OpticStudio\OpticStudio_Prerequisites.exe
+  ZOS20.1_2020-01-21.exe.log:10543:2020-06-04 16:13:32.228   Parameters: /S
+  ZOS20.1_2020-01-21.exe.log:10544:2020-06-04 16:19:01.697   Process exit code: 0
+  
+ #if it hasn't stopped itself already, stop the prereqs installer process
+ Stop-Process -Name OpticStudio_Prerequisites
+ #exit the container
+ exit
+ 
+ #commit your changes to the opticstudio image
+ docker commit opticstudio_base opticstudio:ZOS20.1_2020-01-21
+ 
+ ##Build a standalone application (c#) docker image
+ #go back to docker directory
+#make a samples (as in one of our tests) subdir
+mkdir samples
+(cd samples) mkdir csharpstandaloneapplication
+(cd csharpstandaloneapplication) 
+#make your dockerfile, with these contents 
+#note the x.x.x.x IP address is the IP address of your license manager server, amend with your actual LM address
+[DOCKERFILE START]
+# escape=`
+
+FROM mcr.microsoft.com/dotnet/framework/sdk:4.8 AS build
+
+WORKDIR /app
+
+# copy everything else and build app
+COPY . .
+
+WORKDIR /app/CSharpStandaloneApplication
+RUN dotnet build --configuration Release /p:Platform=x64 -o out
+
+
+FROM opticstudio:ZOS20.1_2020-01-21 AS opticstudio
+
+SHELL ["powershell"]
+
+RUN mkdir app
+COPY --from=build /app/CSharpStandaloneApplication/out ./app
+
+WORKDIR /resources
+SHELL ["powershell"]
+RUN ((Get-Content -Path 'C:\Program Files (x86)\Common Files\Aladdin Shared\HASP\hasplm.ini') -replace 'serversearchinterval = 30',"""serversearchinterval = 30`nserveraddr = x.x.x.x""") | Set-Content -Path 'C:\Program Files (x86)\Common Files\Aladdin Shared\HASP\hasplm.ini'
+
+WORKDIR /resources
+RUN powershell -Command Set-Executionpolicy Unrestricted -Force; .\launchapp.ps1
+[\DOCKERFILE END]
+
+#build the launchapp script. Here we used powersell. Include this content
+#place in the resources directory
+[LAUNCHAPP.PS1 START]
+cd C:\app
+.\CSharpStandaloneApplication.exe
+[/LAUNCHAPP.PS1 END]
+
+#build sample csharpstandaloneapplication image
+#make sure you are in samples/csharpstandaloneapplication directory
+docker build -t csharpstandaloneapplication .
+
+#run the csharpstandaloneapplication
+docker run -it --rm csharpstandaloneapplication
+
+#if you had everything set up correctly a test should run. The container will kill itself upon exit 
+
+
+
+
+
+
+
+
+
+

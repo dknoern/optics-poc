@@ -1,7 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\HPCShared\HPCShared.csproj" />
     <ProjectReference Include="..\ZOSKubLib\ZOSKubLib.csproj" />
   </ItemGroup>
 

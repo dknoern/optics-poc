@@ -1,0 +1,1 @@
+Get-WinEvent -ProviderName 'MsiInstaller' | Where-Object { $_ .TimeCreated -ge (Get-Date).tostring( "yyyy-MM-ddT00:00:00" )} | Where-Object { $_ .Message -Match 'Product: *' }

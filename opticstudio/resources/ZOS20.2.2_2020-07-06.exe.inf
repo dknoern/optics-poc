@@ -1,0 +1,6 @@
+[Setup]
+Lang=default
+Dir=C:\Program Files\OpticStudio
+Group=OpticStudio
+NoIcons=0
+Tasks=desktopicon,quicklaunchicon

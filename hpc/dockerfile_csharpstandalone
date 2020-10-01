@@ -1,0 +1,26 @@
+# escape=`
+
+FROM mcr.microsoft.com/dotnet/framework/sdk:4.8 AS build
+
+WORKDIR /app
+
+# copy everything else and build app
+COPY . .
+
+WORKDIR /app/CSharpStandaloneApplication
+RUN dotnet build --configuration Release /p:Platform=x64 -o out
+
+
+FROM opticstudio:ZOS20.2.2_2020-07-06 AS opticstudio
+
+SHELL ["powershell"]
+
+RUN mkdir app
+COPY --from=build /app/CSharpStandaloneApplication/out ./app
+
+WORKDIR /resources
+SHELL ["powershell"]
+RUN ((Get-Content -Path 'C:\Program Files (x86)\Common Files\Aladdin Shared\HASP\hasplm.ini') -replace 'serversearchinterval = 30',"""serversearchinterval = 30`nserveraddr = 10.0.0.6""") | Set-Content -Path 'C:\Program Files (x86)\Common Files\Aladdin Shared\HASP\hasplm.ini'
+
+WORKDIR /resources
+RUN powershell -Command Set-Executionpolicy Unrestricted -Force; .\launchapp.ps1
