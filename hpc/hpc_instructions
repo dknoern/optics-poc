@@ -58,13 +58,13 @@ RUN powershell ".\resources\NDP472-KB4054530-x86-x64-AllOS-ENU.exe /q /norestart
 [/DOCKERFILE END]
 
 #build docker image
-docker build -t opticstudio:base_ZOS20.1_2020-01-21 .
+docker build -t opticstudio:base_ZOS20.2.2_2020-07-06 .
 
 #Start base container and connect to it
-docker run -it --name opticstudio_base opticstudio:base_ZOS20.1_2020-01-21 powershell
+docker run -it --name opticstudio_base opticstudio:base_ZOS20.2.2_2020-07-06 powershell
 #inside the container
 cd C:\resources
-.\ZOS20.1_2020-01-21.exe /SP- /VERYSILENT /SUPPRESSMSGBOXES /LOADINF=ZOS20.1_2020-01-21.exe.inf /LOG=ZOS20.1_2020-01-21.exe.log
+.\ZOS20.2.2_2020-07-06.exe /SP- /VERYSILENT /SUPPRESSMSGBOXES /LOADINF=ZOS20.2.2_2020-07-06.exe.inf /LOG=ZOS20.2.2_2020-07-06.exe.log
 #will take a few minutes to install
 #verify components are installed
 Get-WinEvent -ProviderName 'MsiInstaller' | Where-Object { $_ .TimeCreated -ge (Get-Date).tostring( "yyyy-MM-ddT00:00:00" )} | Where-Object { $_ .Message -Match 'Product: *' }
@@ -86,7 +86,7 @@ TimeCreated                     Id LevelDisplayName Message
 #There are some prerequisites OpticStudio will install, if not already present
 #Need to make sure the prereqs complete. It should only take a few minutes
 #You can check their completion by parsing the install log
-Select-String .\ZOS20.1_2020-01-21.exe.log -Pattern 'OpticStudio_Prerequisites' -Context 3
+Select-String .\ZOS20.2.2_2020-07-06.exe.log -Pattern 'OpticStudio_Prerequisites' -Context 3
 #if you see prereqs with a successful exit code, you should be all good!
 ZOS20.1_2020-01-21.exe.log:350:2020-06-04 16:09:12.281   Installing the file.
   ZOS20.1_2020-01-21.exe.log:351:2020-06-04 16:09:15.688   Successfully installed the file.
