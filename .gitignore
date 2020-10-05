@@ -6,3 +6,4 @@ kubeconfig_*
 */*/bin
 */*/obj
 terraform.tfstate.backup
+out
