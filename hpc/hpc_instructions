@@ -58,13 +58,16 @@ RUN powershell ".\resources\NDP472-KB4054530-x86-x64-AllOS-ENU.exe /q /norestart
 [/DOCKERFILE END]
 
 #build docker image
-docker build -t opticstudio:base_ZOS20.2.2_2020-07-06 .
+docker build -t opticstudio:base_ZOS20.1_2020-01-21 .
+#docker build -t opticstudio:base_ZOS20.2.2_2020-07-06 .
 
 #Start base container and connect to it
-docker run -it --name opticstudio_base opticstudio:base_ZOS20.2.2_2020-07-06 powershell
+docker run -it --name opticstudio_base opticstudio:base_ZOS20.1_2020-01-21 powershell
+#docker run -it --name opticstudio_base opticstudio:base_ZOS20.2.2_2020-07-06 powershell
 #inside the container
 cd C:\resources
-.\ZOS20.2.2_2020-07-06.exe /SP- /VERYSILENT /SUPPRESSMSGBOXES /LOADINF=ZOS20.2.2_2020-07-06.exe.inf /LOG=ZOS20.2.2_2020-07-06.exe.log
+.\ZOS20.2.2_2020-07-06.exe /SP- /VERYSILENT /SUPPRESSMSGBOXES /LOADINF=ZOS20.2.2_2020-07-06.exe.inf /LOG=ZO220.1_2020-01-21.exe.log
+#.\ZOS20.2.2_2020-07-06.exe /SP- /VERYSILENT /SUPPRESSMSGBOXES /LOADINF=ZOS20.2.2_2020-07-06.exe.inf /LOG=ZOS20.2.2_2020-07-06.exe.log
 #will take a few minutes to install
 #verify components are installed
 Get-WinEvent -ProviderName 'MsiInstaller' | Where-Object { $_ .TimeCreated -ge (Get-Date).tostring( "yyyy-MM-ddT00:00:00" )} | Where-Object { $_ .Message -Match 'Product: *' }
@@ -109,6 +112,7 @@ ZOS20.1_2020-01-21.exe.log:350:2020-06-04 16:09:12.281   Installing the file.
  
  #commit your changes to the opticstudio image
  docker commit opticstudio_base opticstudio:ZOS20.1_2020-01-21
+#docker commit opticstudio_base opticstudio:ZOS20.2.2_2020-07-06
  
  ##Build a standalone application (c#) docker image
  #go back to docker directory
