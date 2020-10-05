@@ -1,12 +1,14 @@
 ﻿using HPCShared;
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
 
 namespace ZOSKubClient
 {
-    class Program
+    class ProgramNew
     {
-        static void Main(string[] args)
+        static void MainNew(string[] args)
         {
             DateTime tS = DateTime.UtcNow;
 
@@ -16,15 +18,29 @@ namespace ZOSKubClient
             // TODO - implement config class!
             HPCUtilities.Init(HPCEnvironment.KubernetesAWS);
 
+            string fileFolder = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            string zarFile = Path.Combine(fileFolder, "tol_test.zar");
+            string topFile = Path.Combine(fileFolder, "tol_test.top");
+
             JobData jd;
             SharedJobData sjd;
             List<TaskData> tasks;
-            JobDataUtilities.CreateJobDataPrimes(
-                numJobs,
-                numCores,
+            JobDataUtilities.CreateJobDataMCTol(
+                24,
+                zarFile,
+                topFile,
+                4,
+                250,
                 out jd,
                 out sjd,
                 out tasks);
+
+            //JobDataUtilities.CreateJobDataPrimes(
+            //    numJobs,
+            //    numCores,
+            //    out jd,
+            //    out sjd,
+            //    out tasks);
 
             byte[] sharedDataBlob = HPCUtilities.Serialize(sjd);
             List<byte[]> taskBlobs = new List<byte[]>();

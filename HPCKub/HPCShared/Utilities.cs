@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
@@ -7,18 +7,61 @@ using System.Text;
 
 namespace HPCShared
 {
-    public static class HPCUtilities
+    public abstract class HPCConfigurationBase
+    {
+        public abstract void LogInfo(string info);
+
+        public abstract string GetInputFolder(string jobId);
+
+        public abstract string GetOutputFolder(string jobId);
+
+        public abstract string GetProgramFolder();
+
+        public abstract string GetRandomInputFile(string jobId);
+
+        public abstract string GetRandomOutputFile(string jobId);
+
+        public abstract void WriteMessage(string m);
+
+        public abstract void CleanFolders(string jobId);
+    }
+
+    public class HPCPackConfig : HPCConfigurationBase
     {
         private const string HPCRoot = @"C:\HPC\";
         private const string LogName = "log.txt";
 
- 
-        public static void LogInfo(string info)
+        public override string GetInputFolder(string jobId)
+        {
+            return HPCUtilities.EnsureDir(Path.Combine(HPCRoot, "Inputs", jobId));
+        }
+
+        public override string GetOutputFolder(string jobId)
+        {
+            return HPCUtilities.EnsureDir(Path.Combine(HPCRoot, "Outputs", jobId));
+        }
+
+        public override string GetProgramFolder()
+        {
+            return Path.Combine(HPCRoot, "Programs");
+        }
+
+        public override string GetRandomInputFile(string jobId)
+        {
+            return HPCUtilities.GetRandomFile(GetInputFolder(jobId));
+        }
+
+        public override string GetRandomOutputFile(string jobId)
+        {
+            return HPCUtilities.GetRandomFile(GetOutputFolder(jobId));
+        }
+
+        public override void LogInfo(string info)
         {
             try
-            { 
+            {
                 string logDir = Path.Combine(HPCRoot, "Logs");
-                EnsureDir(logDir);
+                HPCUtilities.EnsureDir(logDir);
 
                 string logFile = Path.Combine(logDir, LogName);
                 using (StreamWriter sw = new StreamWriter(logFile, true))
@@ -32,36 +75,190 @@ namespace HPCShared
             }
         }
 
-        private static string EnsureDir(string dir)
+        public override void WriteMessage(string m)
         {
-            if (!Directory.Exists(dir))
-                Directory.CreateDirectory(dir);
-            return dir;
+            Console.Error?.WriteLine(m);
+        }
+
+        public override void CleanFolders(string jobId)
+        {
+            string[] folders = new string[]
+            {
+                "Inputs",
+                "Outputs",
+            };
+
+            foreach (string folder in folders)
+            {
+                string path = Path.Combine(HPCRoot, folder);
+
+                string[] dirs = Directory.GetDirectories(path);
+                foreach (string dir in dirs)
+                {
+                    string dirName = dir.Substring(path.Length).Trim('\\');
+                    if (System.String.Compare(dirName, jobId, true) != 0)
+                    {
+                        Directory.Delete(dir, true);
+                    }
+                }
+            }
+        }
+    }
+
+    public class HPCKubConfig : HPCConfigurationBase
+    {
+        // TODO - implement!
+        public override void CleanFolders(string jobId)
+        {
+            throw new NotImplementedException();
+        }
+
+        public override string GetInputFolder(string jobId)
+        {
+            throw new NotImplementedException();
+        }
+
+        public override string GetOutputFolder(string jobId)
+        {
+            throw new NotImplementedException();
+        }
+
+        public override string GetProgramFolder()
+        {
+            throw new NotImplementedException();
+        }
+
+        public override string GetRandomInputFile(string jobId)
+        {
+            throw new NotImplementedException();
+        }
+
+        public override string GetRandomOutputFile(string jobId)
+        {
+            throw new NotImplementedException();
+        }
+
+        public override void LogInfo(string info)
+        {
+            throw new NotImplementedException();
+        }
+
+        public override void WriteMessage(string m)
+        {
+            throw new NotImplementedException();
+        }
+    }
+
+    public enum HPCEnvironment
+    {
+        Unknown,
+        HPCPack,
+        KubernetesAWS,
+    }
+
+    public static class HPCUtilities
+    {
+        private static HPCConfigurationBase Config;
+        public static HPCEnvironment Environment { get; private set; } = HPCEnvironment.Unknown;
+
+        public static void Init(HPCEnvironment env)
+        {
+            switch (env)
+            {
+                case HPCEnvironment.HPCPack:
+                    Config = new HPCPackConfig();
+                    break;
+                case HPCEnvironment.KubernetesAWS:
+                    Config = new HPCKubConfig();
+                    break;
+                default:
+                    throw new NotImplementedException();
+            }
+            Environment = env;
+        }
+
+        private const string S_Env = "ENV";
+        public static void ReadEnv(string iniFile)
+        {
+            using (StreamReader sr = new StreamReader(iniFile))
+            {
+                string line;
+                while ((line = sr.ReadLine()) != null)
+                {
+                    string[] vals = line.Split('=');
+                    if (vals.Length != 2)
+                        continue;
+
+                    string key = vals[0].ToUpper().Trim();
+                    string val = vals[1].Trim();
+
+                    if (key == (S_Env))
+                    {
+                        if (Enum.TryParse<HPCEnvironment>(val, out HPCEnvironment env))
+                        {
+                            Init(env);
+                            return;
+                        }
+                    }
+                }
+            }
+
+            throw new Exception("Unknown environment!");
+        }
+
+        public static void WriteEnv(string iniFile)
+        {
+            using (StreamWriter sw = new StreamWriter(iniFile))
+            {
+                sw.WriteLine($"ENV={Environment.ToString()}");
+            }
+        }
+
+        public static void WriteMessage(string m)
+        {
+            Config.WriteMessage(m);
+        }
+
+        public static void LogInfo(string info)
+        {
+            Config.LogInfo(info);
         }
 
         public static string GetInputFolder(string jobId)
         {
-            return EnsureDir(Path.Combine(HPCRoot, "Inputs", jobId));
+            return Config.GetInputFolder(jobId);
         }
 
         public static string GetOutputFolder(string jobId)
         {
-            return EnsureDir(Path.Combine(HPCRoot, "Outputs", jobId));
+            return Config.GetOutputFolder(jobId);
         }
 
         public static string GetProgramFolder()
         {
-            return Path.Combine(HPCRoot, "Programs");
+            return Config.GetProgramFolder();
         }
 
         public static string GetRandomInputFile(string jobId)
         {
-            return GetRandomFile(GetInputFolder(jobId));
+            return Config.GetRandomInputFile(jobId);
         }
 
         public static string GetRandomOutputFile(string jobId)
         {
-            return GetRandomFile(GetOutputFolder(jobId));
+            return Config.GetRandomOutputFile(jobId);
+        }
+
+        public static void CleanFolders(string jobId)
+        {
+            Config.CleanFolders(jobId);
+        }
+
+        public static string EnsureDir(string dir)
+        {
+            if (!Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+            return dir;
         }
 
         public static string RunGlobalAction(string jobId, string actionName, Func<string> a)
@@ -132,36 +329,12 @@ namespace HPCShared
             return String.Empty;
         }
 
-        public static void CleanFolders(string jobId)
-        {
-            string[] folders = new string[]
-            {
-                "Inputs",
-                "Outputs",
-            };
-
-            foreach (string folder in folders)
-            {
-                string path = Path.Combine(HPCRoot, folder);
-
-                string[] dirs = Directory.GetDirectories(path);
-                foreach (string dir in dirs)
-                {
-                    string dirName = dir.Substring(path.Length).Trim('\\');
-                    if (System.String.Compare(dirName, jobId, true) != 0)
-                    {
-                        Directory.Delete(dir, true);
-                    }
-                }
-            }
-        }
-
         public static string GetClientName(int sessionId, int batchNumber)
         {
             return $"s{sessionId}_b{batchNumber}";
         }
 
-        private static string GetRandomFile(string folder)
+        public static string GetRandomFile(string folder)
         {
             while (true)
             {
@@ -268,4 +441,6 @@ namespace HPCShared
         }
 
     }
+
+
 }

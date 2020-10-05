@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -1183,6 +1183,422 @@ namespace HPCShared
 
             pData.Factors = factors.ToArray();
             Debug.Assert(numFactors == factors.Count);
+        }
+
+        private static Guid LastZOSJob;
+        public static string ZOSJobZAR { get; private set; }
+
+        public static void SetSharedJobData(JobData jd, Func<SharedJobData> getJobData)
+        {
+            Guid g = new Guid(jd.JobId);
+            if (g == LastZOSJob || jd.JobType == JobTypes.PrimeTest1)
+                return;
+
+            SharedJobData sjd = getJobData();
+
+            // Cleanup previous task data
+            string jobId = sjd.JobId;
+
+            // write lookup table
+            byte[] zarData = null;
+            string zarName = String.Empty;
+            byte[] topData = null;
+            string topName = String.Empty;
+            foreach (var entry in sjd.Data)
+            {
+                switch (entry.ID)
+                {
+                    case "zarfile":
+                        zarData = entry.Data;
+                        zarName = entry.Name;
+                        break;
+                    case "topfile":
+                        topData = entry.Data;
+                        topName = entry.Name;
+                        break;
+
+                }
+            }
+
+            if (zarData == null || zarData.Length == 0 || String.IsNullOrWhiteSpace(zarName))
+            {
+                HPCUtilities.WriteMessage("ZOS JOB: invalid zar");
+                throw new Exception("Invalid ZAR!");
+            }
+
+            Func<string> writeZar = () =>
+            {
+                try
+                {
+                    HPCUtilities.CleanFolders(jobId);
+                }
+                catch (Exception ex)
+                {
+                    HPCUtilities.WriteMessage("Failed to clean folders: " + ex.Message);
+                }
+
+                string inputPath = HPCUtilities.GetInputFolder(jobId);
+                string zarFile = Path.Combine(inputPath, zarName);
+                File.WriteAllBytes(zarFile, zarData);
+
+                string ret = zarFile;
+                if (topData != null)
+                {
+                    string topFile = Path.Combine(inputPath, topName);
+                    File.WriteAllBytes(topFile, topData);
+                    ret += "|" + topFile;
+                }
+
+                return ret;
+            };
+
+            const string actionName = "global_zar";
+
+            string fullZar = HPCUtilities.RunGlobalAction(
+                jobId,
+                actionName,
+                writeZar);
+
+            ZOSJobZAR = fullZar;
+            LastZOSJob = new Guid(jobId);
+
+            HPCUtilities.WriteMessage("Set ZOS job data for " + zarName);
+        }
+
+        public static byte[] RunZOSJob(
+            TaskData task,
+            DateTime tS,
+            bool oldInterface = false)
+        {
+            Guid g = new Guid(task.Job.JobId);
+
+            string inFile = HPCUtilities.GetRandomInputFile(g.ToString());
+            string outFile = HPCUtilities.GetRandomOutputFile(g.ToString());
+
+            int taskNumber, timeS, cores;
+            bool dls;
+            ZOSTaskData data = null;
+            if (oldInterface)
+            {
+                taskNumber = BitConverter.ToInt32(task.Data[0].Data, 0);
+                timeS = BitConverter.ToInt32(task.Data[1].Data, 0);
+                cores = BitConverter.ToInt32(task.Data[2].Data, 0);
+                dls = (task.Data[3].Data[0] == 1) ? true : false;
+            }
+            else
+            {
+                data = HPCUtilities.Deserialize<ZOSTaskData>(task.Data[0].Data);
+                taskNumber = data.TaskNumber;
+                cores = data.NumCores;
+                timeS = data.TaskTime;
+                dls = data.UseDLS;
+            }
+
+            using (StreamWriter sw = new StreamWriter(inFile))
+            {
+                if (oldInterface)
+                {
+                    sw.WriteLine(taskNumber);
+                    sw.WriteLine(timeS);
+                    sw.WriteLine(cores);
+                    sw.WriteLine(dls.ToString());
+                    sw.WriteLine(JobDataUtilities.ZOSJobZAR);
+                }
+                else
+                {
+                    sw.WriteLine(task.Job.JobType);
+                    sw.WriteLine(JobDataUtilities.ZOSJobZAR); // Note - contains TOP file for MC as well
+                    sw.WriteLine(task.TotalTasks);
+                    sw.WriteLine(taskNumber);
+                    sw.WriteLine(cores);
+                    sw.WriteLine(data.UseACIS);
+
+                    switch (task.Job.JobType)
+                    {
+                        case JobTypes.ZOS_GlobalOptimization:
+                        case JobTypes.ZOS_HammerOptimization:
+                            sw.WriteLine(data.TaskTime);
+                            sw.WriteLine(data.UseDLS);
+                            break;
+                        case JobTypes.ZOS_MCTolerancing:
+                            sw.WriteLine(data.NumMC);
+                            break;
+                        case JobTypes.ZOS_NSCRayTrace:
+                            sw.WriteLine(data.UsePolarization);
+                            sw.WriteLine(data.SplitRays);
+                            sw.WriteLine(data.ScatterRays);
+                            sw.WriteLine(data.IgnoreErrors);
+                            sw.WriteLine(data.RaysMult.ToString("e16"));
+                            break;
+                        case JobTypes.PrimeTest1:
+                            sw.WriteLine(data.NumberToFactor);
+                            break;
+                    }
+
+                }
+            }
+
+            string programDir = HPCUtilities.GetProgramFolder();
+            string exeName = oldInterface ? "ZOSApplication1.exe" : "ZOSHPCApp.exe";
+
+            ProcessStartInfo psi = new ProcessStartInfo(Path.Combine(programDir, exeName));
+            psi.WorkingDirectory = programDir;
+            psi.Arguments = String.Format("{0} {1} {2}",
+                g.ToString(),
+                Path.GetFileName(inFile),
+                Path.GetFileName(outFile));
+            psi.CreateNoWindow = true;
+            psi.UseShellExecute = false;
+
+            HPCUtilities.WriteMessage("Running task #" + taskNumber);
+
+            Process p = new Process();
+            p.EnableRaisingEvents = true;
+            p.StartInfo = psi;
+            p.Start();
+            p.WaitForExit();
+
+            HPCUtilities.WriteMessage("Program completed!");
+
+            byte[] retData = ProcessOutput(task, tS, inFile, outFile);
+            int dataSize = retData?.Length ?? 0;
+            //{
+            //    if (dataSize > 100)
+            //    {
+            //        byte[] smallData = new byte[100];
+            //        Array.Copy(retData, smallData, 100);
+            //        retData = smallData;
+            //    }
+            //}
+            HPCUtilities.WriteMessage($"({Stopwatch.GetTimestamp()}) job finished: {task.Job.JobId}");
+            HPCUtilities.WriteMessage($"Return data size: {dataSize}");
+
+            return retData;
+        }
+
+        private static byte[] ProcessOutput(TaskData task, DateTime tS, string inFile, string outFile)
+        {
+            string tmpFolder = String.Empty;
+            List<DataEntry> results = new List<DataEntry>();
+            using (StreamReader sr = new StreamReader(outFile))
+            {
+                string line;
+                int lineNum = 0;
+                while ((line = sr.ReadLine()) != null)
+                {
+                    if (String.IsNullOrWhiteSpace(line))
+                        continue;
+                    line = line.Trim();
+
+                    if (task.Job.JobType == JobTypes.ZOS_GlobalOptimization ||
+                        task.Job.JobType == JobTypes.ZOS_HammerOptimization)
+                    {
+                        switch (lineNum)
+                        {
+                            case 0:
+                                results.Add(new DataEntry()
+                                {
+                                    ID = "systems",
+                                    DataType = DataTypes.TotalOptSystems,
+                                    Data = BitConverter.GetBytes(Int64.Parse(line)),
+                                });
+                                break;
+                            case 1:
+                                results.Add(new DataEntry()
+                                {
+                                    ID = "mf",
+                                    DataType = DataTypes.FinalOptMF,
+                                    Data = BitConverter.GetBytes(Double.Parse(line)),
+                                });
+                                break;
+                            case 2:
+                                {
+                                    string outZmx = line;
+                                    byte[] outData = null;
+                                    if (String.IsNullOrWhiteSpace(outZmx))
+                                    {
+                                        HPCUtilities.WriteMessage("Optimization failed!");
+                                    }
+                                    else
+                                    {
+                                        outData = File.ReadAllBytes(outZmx);
+                                        outData = HPCUtilities.CompressData(outData);
+                                        File.Delete(outZmx);
+                                    }
+                                    results.Add(new DataEntry()
+                                    {
+                                        ID = "zmx",
+                                        DataType = DataTypes.File,
+                                        Name = Path.GetFileName(outZmx),
+                                        Data = outData,
+                                    });
+                                }
+                                break;
+                            case 3:
+                                tmpFolder = line;
+                                break;
+                        }
+                    }
+                    else if (task.Job.JobType == JobTypes.ZOS_MCTolerancing)
+                    {
+                        switch (lineNum)
+                        {
+                            case 0:
+                            case 1:
+                            case 2:
+                                {
+                                    string outZmx = line;
+                                    byte[] outData = null;
+                                    if (String.IsNullOrWhiteSpace(outZmx))
+                                    {
+                                        HPCUtilities.WriteMessage("MC tolerancing failed!");
+                                    }
+                                    else
+                                    {
+                                        outData = File.ReadAllBytes(outZmx);
+                                        outData = HPCUtilities.CompressData(outData);
+                                        File.Delete(outZmx);
+                                    }
+                                    string id;
+                                    if (lineNum == 0)
+                                        id = "bestzmx";
+                                    else if (lineNum == 1)
+                                        id = "worstzmx";
+                                    else
+                                        id = "ztd";
+                                    results.Add(new DataEntry()
+                                    {
+                                        ID = id,
+                                        DataType = DataTypes.File,
+                                        Name = Path.GetFileName(outZmx),
+                                        Data = outData,
+                                    });
+                                }
+                                break;
+                            case 3:
+                                tmpFolder = line;
+                                break;
+                        }
+                    }
+                    else if (task.Job.JobType == JobTypes.ZOS_NSCRayTrace)
+                    {
+                        switch (lineNum)
+                        {
+                            case 0:
+                                results.Add(new DataEntry()
+                                {
+                                    ID = "lostthresholds",
+                                    DataType = DataTypes.ValueDouble,
+                                    Data = BitConverter.GetBytes(Double.Parse(line)),
+                                });
+                                break;
+                            case 1:
+                                results.Add(new DataEntry()
+                                {
+                                    ID = "losterrors",
+                                    DataType = DataTypes.ValueDouble,
+                                    Data = BitConverter.GetBytes(Double.Parse(line)),
+                                });
+                                break;
+                            case 2:
+                                results.Add(new DataEntry()
+                                {
+                                    ID = "totalrays",
+                                    DataType = DataTypes.ValueLong,
+                                    Data = BitConverter.GetBytes(Int64.Parse(line)),
+                                });
+                                break;
+                            case 3:
+                                tmpFolder = line;
+                                break;
+                            default:
+                                // detector data 
+                                {
+                                    string outDetFile = line;
+                                    byte[] outData = null;
+                                    {
+                                        outData = File.ReadAllBytes(outDetFile);
+                                        outData = HPCUtilities.CompressData(outData);
+                                        File.Delete(outDetFile);
+                                    }
+                                    results.Add(new DataEntry()
+                                    {
+                                        ID = "detdata",
+                                        DataType = DataTypes.File,
+                                        Name = Path.GetFileName(outDetFile),
+                                        Data = outData,
+                                    });
+                                }
+                                break;
+                        }
+                    }
+                    else if (task.Job.JobType == JobTypes.PrimeTest1)
+                    {
+                        switch (lineNum)
+                        {
+                            case 0:
+                                results.Add(new DataEntry()
+                                {
+                                    ID = "numbertofactor",
+                                    DataType = DataTypes.ValueInt,
+                                    Data = BitConverter.GetBytes(Int32.Parse(line)),
+                                });
+                                break;
+                            case 1:
+                                results.Add(new DataEntry()
+                                {
+                                    ID = "numberoffactors",
+                                    DataType = DataTypes.ValueInt,
+                                    Data = BitConverter.GetBytes(Int32.Parse(line)),
+                                });
+                                break;
+                            default:
+                                results.Add(new DataEntry()
+                                {
+                                    ID = "factor",
+                                    DataType = DataTypes.ValueInt,
+                                    Data = BitConverter.GetBytes(Int32.Parse(line)),
+                                });
+                                break;
+                        }
+                    }
+
+                    ++lineNum;
+                }
+            }
+
+            File.Delete(inFile);
+            File.Delete(outFile);
+
+            try
+            {
+                if (Directory.Exists(tmpFolder))
+                {
+                    Directory.Delete(tmpFolder, true);
+                }
+            }
+            catch { }
+
+            DateTime tE = DateTime.UtcNow;
+            TimeSpan elapsed = (tE - tS);
+
+            results.Add(new DataEntry()
+            {
+                ID = "elapsedTime",
+                Name = Environment.MachineName,
+                DataType = DataTypes.Misc,
+                Data = BitConverter.GetBytes(elapsed.Ticks),
+            });
+
+            TaskResults ret = new TaskResults()
+            {
+                Job = task.Job,
+                TaskNumber = task.TaskNumber,
+                Results = results.ToArray(),
+            };
+            byte[] retData = HPCUtilities.Serialize(ret);
+
+            return retData;
         }
 
     }

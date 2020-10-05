@@ -1,20 +1,18 @@
-﻿using HPCShared;
+using HPCShared;
+using ZOSKubLib;
 using System;
 using System.Collections.Generic;
 
 namespace ZOSKubClient
 {
-    class Program
+    class ProgramOld
     {
-        static void Main(string[] args)
+        static void MainOld(string[] args)
         {
             DateTime tS = DateTime.UtcNow;
 
-            const int numJobs = 100;
+            const int numJobs = 3;
             const int numCores = 1;
-
-            // TODO - implement config class!
-            HPCUtilities.Init(HPCEnvironment.KubernetesAWS);
 
             JobData jd;
             SharedJobData sjd;
@@ -31,16 +29,40 @@ namespace ZOSKubClient
             foreach (var task in tasks)
                 taskBlobs.Add(HPCUtilities.Serialize(task));
 
-            // TODO - send shared data blob to cluster
-            // TODO - send task blobs to cluster
+            string dataDirectoryPath = @"C:\\Data\Some Data Files";
 
-            // TODO - collect results
+            // TODO - where (if at all) should we output the data?
+            // string outputFolder = @"c:\temp\"; 
 
-            // TODO - where should we output the data?
-            string outputFolder = @"c:\temp\"; 
+
+            // send input file and task blobs to cluster, collect results
+            TaskSender taskSender = new TaskSender();
+            List<byte[]> results = taskSender.Send(dataDirectoryPath, taskBlobs);
+
+            // DK - temp output results
+            Console.WriteLine("processing complete");
+
+            foreach( var result in results)
+            {
+
+                TaskResults taskResults = HPCUtilities.Deserialize<TaskResults>(result);
+
+                DataEntry[] data = taskResults.Results;
+
+
+                Console.Write("number: " + BitConverter.ToInt32(data[0].Data) +", factors: ");
+                for(int i=1;i<data.Length-1;i++){
+                    Console.Write(BitConverter.ToInt32(data[i].Data) + " ");
+                }
+                Console.WriteLine();
+            }
+
+
+            // DK- following code not quite hooked up yet with k8s
+            /*
 
             string[] resultFiles = new string[] { };
-            List<ZOSResult> processedResults = new List<ZOSResult>();
+            // List<ZOSResult> processedResults = new List<ZOSResult>();
             int numProcessed = 0;
             int numFail = 0;
             foreach (string resultFile in resultFiles)
@@ -71,6 +93,8 @@ namespace ZOSKubClient
             {
                 Console.WriteLine(stat.ToString());
             }
+
+            */
 
             Console.WriteLine();
             Console.WriteLine("Press any key to exit");
