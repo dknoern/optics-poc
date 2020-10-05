@@ -1,6 +1,9 @@
 ﻿using HPCShared;
+using ZOSKubLib;
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
 
 namespace ZOSKubClient
 {
@@ -16,36 +19,58 @@ namespace ZOSKubClient
             // TODO - implement config class!
             HPCUtilities.Init(HPCEnvironment.KubernetesAWS);
 
+            //string fileFolder = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            string fileFolder =  @"C:\tmp\zoskub\input";
+            string outputFolder = @"C:\tmp\zoskub\output";
+
+            string zarFile = Path.Combine(fileFolder, "tol_test.zar");
+            string topFile = Path.Combine(fileFolder, "tol_test.top");
+
             JobData jd;
             SharedJobData sjd;
             List<TaskData> tasks;
-            JobDataUtilities.CreateJobDataPrimes(
-                numJobs,
-                numCores,
+            JobDataUtilities.CreateJobDataMCTol(
+                24,
+                zarFile,
+                topFile,
+                4,
+                250,
                 out jd,
                 out sjd,
                 out tasks);
 
+            //JobDataUtilities.CreateJobDataPrimes(
+            //    numJobs,
+            //    numCores,
+            //    out jd,
+            //    out sjd,
+            //    out tasks);
+
+            string sjdFile = Path.Combine(fileFolder, jd.JobId + ".sjd");
+
             byte[] sharedDataBlob = HPCUtilities.Serialize(sjd);
+
             List<byte[]> taskBlobs = new List<byte[]>();
             foreach (var task in tasks)
                 taskBlobs.Add(HPCUtilities.Serialize(task));
 
-            // TODO - send shared data blob to cluster
-            // TODO - send task blobs to cluster
+            File.WriteAllBytes(sjdFile,sharedDataBlob);
 
-            // TODO - collect results
+            // send shared data blob and task blobs to cluster, collect results
+            Console.WriteLine("JobId = "+ jd.JobId);
 
-            // TODO - where should we output the data?
-            string outputFolder = @"c:\temp\"; 
+            string dataDirectoryPath = null;
+            TaskSender taskSender = new TaskSender(Orchestrator.Docker);
 
-            string[] resultFiles = new string[] { };
+            taskSender.CopySharedJobData(sjdFile);
+            List<byte[]> resultByteArrays = taskSender.Send(taskBlobs);
+
             List<ZOSResult> processedResults = new List<ZOSResult>();
             int numProcessed = 0;
             int numFail = 0;
-            foreach (string resultFile in resultFiles)
+            foreach (byte[] resultByteArray in resultByteArrays)
             {
-                var tr = HPCUtilities.Deserialize<TaskResults>(System.IO.File.ReadAllBytes(resultFile));
+                var tr = HPCUtilities.Deserialize<TaskResults>(resultByteArray);
                 ZOSResult result;
                 JobDataUtilities.ProcessZOSResult(tr, out result);
                 if (result != null)
@@ -76,6 +101,5 @@ namespace ZOSKubClient
             Console.WriteLine("Press any key to exit");
             Console.ReadKey();
         }
-
     }
 }

@@ -1,14 +1,14 @@
 ﻿using HPCShared;
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Reflection;
+using ZOSKubLib;
+
 
 namespace ZOSKubClient
 {
-    class ProgramNew
+    class ProgramPrimes
     {
-        static void MainNew(string[] args)
+        static void MainPrimes(string[] args)
         {
             DateTime tS = DateTime.UtcNow;
 
@@ -18,29 +18,15 @@ namespace ZOSKubClient
             // TODO - implement config class!
             HPCUtilities.Init(HPCEnvironment.KubernetesAWS);
 
-            string fileFolder = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            string zarFile = Path.Combine(fileFolder, "tol_test.zar");
-            string topFile = Path.Combine(fileFolder, "tol_test.top");
-
             JobData jd;
             SharedJobData sjd;
             List<TaskData> tasks;
-            JobDataUtilities.CreateJobDataMCTol(
-                24,
-                zarFile,
-                topFile,
-                4,
-                250,
+            JobDataUtilities.CreateJobDataPrimes(
+                numJobs,
+                numCores,
                 out jd,
                 out sjd,
                 out tasks);
-
-            //JobDataUtilities.CreateJobDataPrimes(
-            //    numJobs,
-            //    numCores,
-            //    out jd,
-            //    out sjd,
-            //    out tasks);
 
             byte[] sharedDataBlob = HPCUtilities.Serialize(sjd);
             List<byte[]> taskBlobs = new List<byte[]>();
@@ -53,7 +39,32 @@ namespace ZOSKubClient
             // TODO - collect results
 
             // TODO - where should we output the data?
-            string outputFolder = @"c:\temp\"; 
+            //string outputFolder = @"c:\temp\"; 
+            string dataDirectoryPath = null;
+
+            // send input file and task blobs to cluster, collect results
+            TaskSender taskSender = new TaskSender(Orchestrator.Docker);
+            List<byte[]> results = taskSender.Send(taskBlobs);
+
+            // DK - temp output results
+            Console.WriteLine("processing complete");
+
+            foreach( var result in results)
+            {
+
+                TaskResults taskResults = HPCUtilities.Deserialize<TaskResults>(result);
+
+                DataEntry[] data = taskResults.Results;
+
+                Console.Write("number: " + BitConverter.ToInt32(data[0].Data) +", factors: ");
+                for(int i=1;i<data.Length-1;i++){
+                    Console.Write(BitConverter.ToInt32(data[i].Data) + " ");
+                }
+                Console.WriteLine();
+            }
+
+            // DK- following code not quite hooked up yet with k8s
+            /*
 
             string[] resultFiles = new string[] { };
             List<ZOSResult> processedResults = new List<ZOSResult>();
@@ -87,6 +98,8 @@ namespace ZOSKubClient
             {
                 Console.WriteLine(stat.ToString());
             }
+
+            */
 
             Console.WriteLine();
             Console.WriteLine("Press any key to exit");

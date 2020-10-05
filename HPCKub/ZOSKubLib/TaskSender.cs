@@ -12,43 +12,54 @@ using HPCShared;
 
 namespace ZOSKubLib
 {
+    public enum Orchestrator
+    {
+        Kubernetes,
+        Docker
+    }
+
+
     public class TaskSender
     {
+        private Orchestrator Orchestrator;
+
+        public TaskSender(Orchestrator Orchestrator)
+        {
+            this.Orchestrator = Orchestrator;
+        }
 
         IModel channel = null;
-
-        string outputDir = null;
 
         string inputQueueName = "in";
         string outputQueueName = "out";
 
-        public List<byte[]> Send(string dataDirectoryPath, List<byte[]> taskBlobs)
+        public List<byte[]> Send(List<byte[]> taskBlobs)
         {
 
             // TODO - need unique job number to prevent collisions
             Random rnd = new Random();  
             string jobNumber  = rnd.Next(1000, 9999).ToString();  // creates a number between 1 and 1000
 
-     
+
             Console.WriteLine("TaskSender: initializing");
 
-            Console.WriteLine("taskSender: forwarding broker port");
 
-            V1Pod rabbit = FindFirstPod("rabbitmq");
+            if(Orchestrator == Orchestrator.Kubernetes)
+            {
+                Console.WriteLine("taskSender: forwarding broker port");
 
-            var config = KubernetesClientConfiguration.BuildDefaultConfig();
-            IKubernetes client = new Kubernetes(config);
+                V1Pod rabbit = FindFirstPod("rabbitmq");
 
-            PortForward(rabbit.Metadata.Name);
+                var config = KubernetesClientConfiguration.BuildDefaultConfig();
+                IKubernetes client = new Kubernetes(config);
 
-            Thread.Sleep(3000);
+                PortForward(rabbit.Metadata.Name);
+
+                Thread.Sleep(5000);
+            }
 
             Console.WriteLine("BatchClient: preparing remote directory structure");
 
-            // TODO: what exactly should we put here?
-            //BuildJobDir(jobNumber.ToString());
-            //CopyJobDir(jobNumber.ToString());
-            Thread.Sleep(10000);
 
             Console.WriteLine("BatchClient: publishing tasks for job " + jobNumber);
 
@@ -98,38 +109,22 @@ namespace ZOSKubLib
                 Console.WriteLine("all responses complete");
                 Console.WriteLine("total result = "+ totalResult);
 
-
-
                 return processedResults;
         }
         
-        private void BuildJobDir(string jobNumber)
-        {
-            //TODO: fail if dir exists
 
-            if (!Directory.Exists("jobs/"+jobNumber))
+        public void CopySharedJobData(string sharedJobDataFile)
+        {  
+            if(Orchestrator == Orchestrator.Kubernetes)
             {
-                Directory.CreateDirectory("jobs/"+jobNumber);
-                Directory.CreateDirectory(outputDir);
-                Directory.CreateDirectory("jobs/"+jobNumber+"/err");
-                System.IO.File.WriteAllText("jobs/"+jobNumber+"/config.txt", "power=2");
+                V1Pod worker = FindFirstPod("worker");
+                var podName = worker.Metadata.Name;
+
+                // TODO: path ok for windows?
+                String command = "cp "+sharedJobDataFile + "  " + podName + ":/var/lib/jobs/.";
+                Console.WriteLine("copy command: "+ command);
+                Process.Start("kubectl", command);
             }
-        }
-
-        private string GetOuputDir()
-        {
-            return outputDir;
-        }
-
-        private void CopyJobDir(string jobNumber)
-        {
-            
-            V1Pod worker = FindFirstPod("worker");
-            var podName = worker.Metadata.Name;
-
-            String command = "cp jobs/"+jobNumber + "  " + podName + ":/var/lib/jobs/"+jobNumber;
-            Console.WriteLine("copy command: "+ command);
-            Process.Start("kubectl", command);
         }
 
         private void PublishTasks(IModel channel, List<byte[]> taskInputs)

@@ -12,13 +12,11 @@ namespace ZOSKubApp
         {
             Console.WriteLine("worker process started....");
 
-
             ITaskWorker taskWorker = new ZOSTaskWorker();
 
             TaskReceiver taskReceiver = new TaskReceiver(taskWorker);
 
             taskReceiver.Receive();
-
 
             Console.WriteLine("...worker process ended (should not happen).");
         }
